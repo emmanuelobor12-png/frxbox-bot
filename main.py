@@ -246,7 +246,7 @@ def analyze(pair_name, symbol):
     risk, risk_emoji = get_risk_level(volatility, volumes, confidence, htf_trend, direction)
 
     # Only return HIGH confidence signals
-    if confidence < 70:
+    if confidence < 80:
         return None
 
     return {
@@ -324,7 +324,7 @@ def main_loop():
         "🚀  <b>AI Trading Engine Online</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "Monitoring 10 pairs on 1-minute charts.\n"
-        "Signals will only appear when confidence ≥ 70%.\n\n"
+        "Signals will only appear when confidence ≥ 80%.\n\n"
         "🟢 LOW RISK = best trades\n"
         "🟡 MEDIUM RISK = trade carefully\n"
         "🔴 HIGH RISK = consider skipping\n"
