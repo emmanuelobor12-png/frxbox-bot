@@ -249,6 +249,13 @@ def analyze(pair_name, symbol):
     if confidence < 80:
         return None
 
+    # Filter RSI contradictions — oversold market calling LOWER or overbought calling HIGHER
+    # are weak, conflicted signals not worth trading
+    if rsi_val < 35 and direction == "LOWER":
+        return None
+    if rsi_val > 65 and direction == "HIGHER":
+        return None
+
     return {
         "pair": pair_name, "direction": direction, "emoji": emoji,
         "confidence": confidence, "risk": risk, "risk_emoji": risk_emoji,
