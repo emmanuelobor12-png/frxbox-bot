@@ -263,58 +263,37 @@ def analyze(pair_name, symbol):
 
 # ── SIGNAL FORMATTER ──────────────────────────────────────────────────────────
 def format_signal(r):
-    # Warn the trader if risk is not low
-    risk_warning = ""
+    rsi_read = (
+        "Oversold — Buy Pressure" if r['rsi_val'] < 35
+        else "Overbought — Sell Pressure" if r['rsi_val'] > 65
+        else "Neutral Zone"
+    )
+    skip_warning = ""
     if r["risk"] == "HIGH RISK":
-        risk_warning = "\n⚠️ <b>Caution:</b> High risk conditions detected.\nConsider skipping this trade.\n"
-    elif r["risk"] == "MEDIUM RISK":
-        risk_warning = "\n⚠️ <b>Note:</b> Medium risk — trade with care.\n"
+        skip_warning = "⚠️ <b>Consider skipping — High Risk</b>\n"
+    elif "Below" in r["volume_desc"] or "Weak" in r["volume_desc"]:
+        skip_warning = "⚠️ <b>Weak volume — trade carefully</b>\n"
 
     return (
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📡  <b>AI TRADING SIGNAL</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"📡 <b>{r['pair']}</b>  |  {r['time']}  |  ⏱ 1 MIN\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"{r['emoji']} <b>{r['direction']}</b>  |  💵 {r['price']:.5f}\n"
         f"\n"
-        f"💱  <b>Pair:</b>  {r['pair']}\n"
-        f"🕐  <b>Time:</b>  {r['time']}\n"
-        f"⏱️  <b>Expiry:</b>  1 MINUTE\n"
+        f"💪 Confidence:  <b>{r['confidence']}%</b>\n"
+        f"🔭 HTF Trend:   <b>{r['htf_trend']}</b>\n"
+        f"{r['risk_emoji']} Risk:          <b>{r['risk']}</b>\n"
+        f"📦 Volume:      <b>{r['volume_desc'].split('(')[0].strip()}</b>\n"
         f"\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊  <b>SIGNAL</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"\n"
-        f"{r['emoji']}  <b>Direction:</b>  {r['direction']}\n"
-        f"💪  <b>Confidence:</b>  {r['confidence']}%\n"
-        f"{r['risk_emoji']}  <b>Risk Level:</b>  {r['risk']}\n"
-        f"{risk_warning}"
-        f"\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🌍  <b>MARKET OVERVIEW</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"\n"
-        f"📈  Volatility:  {r['volatility']}\n"
-        f"📦  Volume:  {r['volume_desc']}\n"
-        f"🔭  HTF Trend (5m):  {r['htf_trend']}\n"
-        f"\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💰  <b>PRICE LEVELS</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"\n"
-        f"💵  Current Price:  {r['price']:.5f}\n"
-        f"🔴  Resistance (R1):  {r['resistance']}\n"
-        f"🟢  Support (S1):  {r['support']}\n"
-        f"\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔬  <b>TECHNICAL ANALYSIS</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"\n"
-        f"📉  RSI ({r['rsi_val']:.0f}):  {'Oversold — Buy Pressure' if r['rsi_val'] < 35 else 'Overbought — Sell Pressure' if r['rsi_val'] > 65 else 'Neutral Zone'}\n"
-        f"⚡  MACD:  {r['macd_desc']}\n"
-        f"🎯  Bollinger:  {r['bb_desc']}\n"
-        f"📐  Moving Avg:  {r['ema_desc']}\n"
-        f"🕯️  Pattern:  <b>{r['pattern']}</b>\n"
-        f"\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{skip_warning}"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"📊 RSI ({r['rsi_val']:.0f}) — {rsi_read}\n"
+        f"⚡ MACD — {r['macd_desc']}\n"
+        f"🎯 BB — {r['bb_desc']}\n"
+        f"🕯 Pattern — <b>{r['pattern']}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🔴 R1: {r['resistance']}   🟢 S1: {r['support']}\n"
+        f"━━━━━━━━━━━━━━━━━━"
     )
 
 # ── MAIN LOOP ─────────────────────────────────────────────────────────────────
