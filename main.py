@@ -50,28 +50,23 @@ def get_price_data_1h(symbol):
 def detect_candlestick_pattern(opens, highs, lows, closes):
     if len(closes) < 3:
         return "No Pattern"
-    o1, h1, l1, c1 = opens.iloc[-2], highs.iloc[-2], lows.iloc[-2], closes.iloc[-2]
     o2, h2, l2, c2 = opens.iloc[-1], highs.iloc[-1], lows.iloc[-1], closes.iloc[-1]
-    body1 = abs(c1 - o1)
+    o1, h1, l1, c1 = opens.iloc[-2], highs.iloc[-2], lows.iloc[-2], closes.iloc[-2]
     body2 = abs(c2 - o2)
-    # Bullish Engulfing
-    if c1 < o1 and c2 > o2 and c2 > o1 and o2 < c1:
-        return "Bullish Engulfing"
-    # Bearish Engulfing
-    if c1 > o1 and c2 < o2 and c2 < o1 and o2 > c1:
-        return "Bearish Engulfing"
-    # Hammer
+    body1 = abs(c1 - o1)
     lower_wick = min(o2, c2) - l2
     upper_wick = h2 - max(o2, c2)
-    if lower_wick > 2 * body2 and upper_wick < body2:
+    candle_range = h2 - l2 if h2 - l2 > 0 else 0.0001
+    if c1 < o1 and c2 > o2 and c2 > o1 and o2 < c1:
+        return "Bullish Engulfing"
+    if c1 > o1 and c2 < o2 and c2 < o1 and o2 > c1:
+        return "Bearish Engulfing"
+    if lower_wick > 2 * body2 and upper_wick < body2 and body2 > 0:
         return "Hammer (Bullish)"
-    # Shooting Star
-    if upper_wick > 2 * body2 and lower_wick < body2:
+    if upper_wick > 2 * body2 and lower_wick < body2 and body2 > 0:
         return "Shooting Star (Bearish)"
-    # Doji
-    if body2 < 0.1 * (h2 - l2):
+    if body2 < 0.1 * candle_range:
         return "Doji (Indecision)"
-    # Morning Star approximation
     if len(closes) >= 3:
         o0, c0 = opens.iloc[-3], closes.iloc[-3]
         if c0 < o0 and body2 < 0.3 * abs(c0 - o0) and c2 > o2:
@@ -81,7 +76,7 @@ def detect_candlestick_pattern(opens, highs, lows, closes):
 def analyze(pair_name, symbol):
     data = get_price_data(symbol)
     data_1h = get_price_data_1h(symbol)
-    if data is None or len(data["closes"]) < 50:
+    if data is None or len(data["closes"]) < 30:
         return None
 
     closes = data["closes"]
@@ -89,21 +84,22 @@ def analyze(pair_name, symbol):
     lows = data["lows"]
     opens = data["opens"]
     volumes = data["volumes"]
+    current = closes.iloc[-1]
 
-    # === INDICATORS ===
-    rsi = ta.momentum.RSIIndicator(closes).rsi()
-    rsi_val = rsi.iloc[-1]
+    # RSI
+    rsi_val = ta.momentum.RSIIndicator(closes, window=14).rsi().iloc[-1]
 
+    # MACD
     macd_ind = ta.trend.MACD(closes)
     macd_line = macd_ind.macd().iloc[-1]
     signal_line = macd_ind.macd_signal().iloc[-1]
     macd_hist = macd_ind.macd_diff().iloc[-1]
 
+    # Bollinger Bands
     bb = ta.volatility.BollingerBands(closes)
     bb_upper = bb.bollinger_hband().iloc[-1]
     bb_lower = bb.bollinger_lband().iloc[-1]
     bb_mid = bb.bollinger_mavg().iloc[-1]
-    current = closes.iloc[-1]
 
     # EMA
     ema9 = ta.trend.EMAIndicator(closes, window=9).ema_indicator().iloc[-1]
@@ -133,114 +129,71 @@ def analyze(pair_name, symbol):
     except:
         atr = 0
 
-    # Support & Resistance
     support = round(lows.iloc[-20:].min(), 5)
     resistance = round(highs.iloc[-20:].max(), 5)
-
-    # Candlestick Pattern
     pattern = detect_candlestick_pattern(opens, highs, lows, closes)
 
-    # Higher timeframe trend
+    # Higher timeframe
     htf_trend = "Neutral"
-    if data_1h and len(data_1h["closes"]) > 50:
-        h_closes = data_1h["closes"]
-        h_ema21 = ta.trend.EMAIndicator(h_closes, window=21).ema_indicator().iloc[-1]
-        h_ema50 = ta.trend.EMAIndicator(h_closes, window=50).ema_indicator().iloc[-1]
-        if h_ema21 > h_ema50:
-            htf_trend = "Bullish"
-        elif h_ema21 < h_ema50:
-            htf_trend = "Bearish"
+    try:
+        if data_1h and len(data_1h["closes"]) > 50:
+            h_closes = data_1h["closes"]
+            h_ema21 = ta.trend.EMAIndicator(h_closes, window=21).ema_indicator().iloc[-1]
+            h_ema50 = ta.trend.EMAIndicator(h_closes, window=50).ema_indicator().iloc[-1]
+            htf_trend = "Bullish" if h_ema21 > h_ema50 else "Bearish"
+    except:
+        pass
 
-    # === SCORING ===
-    score = 0
+    # === SCORING (max 12 points) ===
     bull_points = 0
     bear_points = 0
 
-    # RSI (max 3 points)
-    if rsi_val < 30:
-        bull_points += 3
-    elif rsi_val < 40:
-        bull_points += 2
-    elif rsi_val < 45:
-        bull_points += 1
-    elif rsi_val > 70:
-        bear_points += 3
-    elif rsi_val > 60:
-        bear_points += 2
-    elif rsi_val > 55:
-        bear_points += 1
+    # RSI (3 points)
+    if rsi_val < 35: bull_points += 3
+    elif rsi_val < 45: bull_points += 2
+    elif rsi_val < 50: bull_points += 1
+    elif rsi_val > 65: bear_points += 3
+    elif rsi_val > 55: bear_points += 2
+    elif rsi_val > 50: bear_points += 1
 
-    # MACD (max 2 points)
-    if macd_line > signal_line and macd_hist > 0:
-        bull_points += 2
-    elif macd_line > signal_line:
-        bull_points += 1
-    elif macd_line < signal_line and macd_hist < 0:
-        bear_points += 2
-    else:
-        bear_points += 1
+    # MACD (2 points)
+    if macd_line > signal_line: bull_points += 2
+    else: bear_points += 2
 
-    # Bollinger Bands (max 2 points)
-    if current < bb_lower:
-        bull_points += 2
-    elif current < bb_mid:
-        bull_points += 1
-    elif current > bb_upper:
-        bear_points += 2
-    else:
-        bear_points += 1
+    # Bollinger Bands (2 points)
+    if current < bb_lower: bull_points += 2
+    elif current < bb_mid: bull_points += 1
+    elif current > bb_upper: bear_points += 2
+    else: bear_points += 1
 
-    # EMA alignment (max 2 points)
-    if current > ema9 > ema21 > ema50:
-        bull_points += 2
-    elif current > ema9 and ema9 > ema21:
-        bull_points += 1
-    elif current < ema9 < ema21 < ema50:
-        bear_points += 2
-    elif current < ema9 and ema9 < ema21:
-        bear_points += 1
+    # EMA (2 points)
+    if current > ema9 and ema9 > ema21: bull_points += 2
+    elif current > ema21: bull_points += 1
+    elif current < ema9 and ema9 < ema21: bear_points += 2
+    else: bear_points += 1
 
-    # Stochastic RSI (max 2 points)
-    if stoch_k < 0.2 and stoch_k > stoch_d:
-        bull_points += 2
-    elif stoch_k < 0.3:
-        bull_points += 1
-    elif stoch_k > 0.8 and stoch_k < stoch_d:
-        bear_points += 2
-    elif stoch_k > 0.7:
-        bear_points += 1
+    # Stochastic RSI (2 points)
+    if stoch_k < 0.3: bull_points += 2
+    elif stoch_k < 0.5: bull_points += 1
+    elif stoch_k > 0.7: bear_points += 2
+    else: bear_points += 1
 
-    # ADX trend strength (max 1 point)
-    if adx_val > 25:
-        if adx_pos > adx_neg:
-            bull_points += 1
-        else:
-            bear_points += 1
-
-    # Candlestick pattern (max 2 points)
+    # Pattern (1 point)
     if "Bullish" in pattern or "Hammer" in pattern or "Morning" in pattern:
-        bull_points += 2
-    elif "Bearish" in pattern or "Shooting" in pattern:
-        bear_points += 2
-
-    # Higher timeframe (max 1 point)
-    if htf_trend == "Bullish":
         bull_points += 1
-    elif htf_trend == "Bearish":
+    elif "Bearish" in pattern or "Shooting" in pattern:
         bear_points += 1
 
-    # Total max = 16 points
-    total_max = 16
-    score = bull_points - bear_points
+    total_max = 12
 
     if bull_points > bear_points:
-        confidence = round((bull_points / total_max) * 100)
+        confidence = min(99, round((bull_points / total_max) * 100))
         direction = "⬆️ HIGHER"
         direction_short = "HIGHER"
         emoji = "🟢"
         net = bull_points
     elif bear_points > bull_points:
-        confidence = round((bear_points / total_max) * 100)
+        confidence = min(99, round((bear_points / total_max) * 100))
         direction = "⬇️ LOWER"
         direction_short = "LOWER"
         emoji = "🔴"
@@ -248,33 +201,22 @@ def analyze(pair_name, symbol):
     else:
         return None
 
-    # Minimum threshold
-    if net < 5:
+    # Lower threshold - fire if net >= 4 out of 12
+    if net < 4:
         return None
 
     # Grade
-    if confidence >= 75:
-        grade = "A"
-    elif confidence >= 60:
-        grade = "B"
-    elif confidence >= 50:
-        grade = "C"
-    else:
-        return None
+    if confidence >= 70: grade = "A"
+    elif confidence >= 55: grade = "B"
+    else: grade = "C"
 
     # Risk
-    if confidence >= 75 and adx_val > 20:
-        risk = "LOW"
-        risk_emoji = "🟢"
-    elif confidence >= 60:
-        risk = "MEDIUM"
-        risk_emoji = "🟡"
-    else:
-        risk = "HIGH"
-        risk_emoji = "🔴"
+    if confidence >= 70: risk, risk_emoji = "LOW", "🟢"
+    elif confidence >= 55: risk, risk_emoji = "MEDIUM", "🟡"
+    else: risk, risk_emoji = "HIGH", "🔴"
 
     # MA Summary
-    if confidence >= 70:
+    if confidence >= 65:
         ma_summary = "STRONG BUY" if direction_short == "HIGHER" else "STRONG SELL"
         oscillator = "BUY" if direction_short == "HIGHER" else "SELL"
     else:
@@ -283,105 +225,64 @@ def analyze(pair_name, symbol):
 
     # Volatility
     std = closes.pct_change().std()
-    if std > 0.002:
-        volatility = "High"
-    elif std > 0.001:
-        volatility = "Dynamic"
-    else:
-        volatility = "Low"
+    volatility = "High" if std > 0.002 else ("Dynamic" if std > 0.001 else "Low")
 
     # Volume
+    volume_status = "Normal"
     if len(volumes) > 20:
-        recent_vol = volumes.iloc[-5:].mean()
-        older_vol = volumes.iloc[-20:-5].mean()
-        if older_vol > 0:
-            ratio = recent_vol / older_vol
+        rv = volumes.iloc[-5:].mean()
+        ov = volumes.iloc[-20:-5].mean()
+        if ov > 0:
+            ratio = rv / ov
             volume_status = "Spiked" if ratio > 1.5 else ("Contracting" if ratio < 0.7 else "Normal")
-        else:
-            volume_status = "Normal"
-    else:
-        volume_status = "Normal"
 
     # Sentiment
-    if bull_points > bear_points + 3:
-        sentiment = "Strongly Bullish"
-    elif bull_points > bear_points:
-        sentiment = "Bullish"
-    elif bear_points > bull_points + 3:
-        sentiment = "Strongly Bearish"
+    diff = bull_points - bear_points
+    if direction_short == "HIGHER":
+        sentiment = "Strongly Bullish" if diff >= 4 else "Bullish"
     else:
-        sentiment = "Bearish"
+        sentiment = "Strongly Bearish" if diff <= -4 else "Bearish"
 
-    # RSI description
-    if rsi_val < 30: rsi_desc = "Oversold - Strong Reversal Signal"
+    # Descriptions
+    if rsi_val < 30: rsi_desc = "Oversold - Strong Reversal"
     elif rsi_val < 40: rsi_desc = "Oversold Zone"
+    elif rsi_val < 45: rsi_desc = "Approaching Oversold"
     elif rsi_val > 70: rsi_desc = "Overbought - Pullback Likely"
     elif rsi_val > 60: rsi_desc = "Approaching Overbought"
     else: rsi_desc = "Neutral Range"
 
-    # MACD description
-    if macd_line > signal_line and macd_hist > 0:
-        macd_desc = "Bullish Crossover - Momentum Up"
-    elif macd_line > signal_line:
-        macd_desc = "Bullish - Weak Momentum"
-    elif macd_line < signal_line and macd_hist < 0:
-        macd_desc = "Bearish Crossover - Momentum Down"
-    else:
-        macd_desc = "Bearish - Weak Momentum"
+    macd_desc = "Bullish Momentum" if macd_line > signal_line else "Bearish Momentum"
 
-    # BB description
-    if current < bb_lower: bb_desc = "Breaking Below Lower Band"
-    elif current > bb_upper: bb_desc = "Breaking Above Upper Band"
-    else: bb_desc = f"Mid-Band {'Support' if direction_short == 'HIGHER' else 'Resistance'}"
+    if current < bb_lower: bb_desc = "Below Lower Band"
+    elif current > bb_upper: bb_desc = "Above Upper Band"
+    else: bb_desc = "Within Bands"
 
-    # EMA description
-    if current > ema9 > ema21 > ema50:
-        ema_desc = "Perfect Bull Alignment (9>21>50)"
-    elif current < ema9 < ema21 < ema50:
-        ema_desc = "Perfect Bear Alignment (9<21<50)"
-    elif current > ema21:
-        ema_desc = f"Above EMA21 ({ema21:.5f})"
-    else:
-        ema_desc = f"Below EMA21 ({ema21:.5f})"
+    if current > ema9 > ema21: ema_desc = "Bull Aligned (Price>EMA9>EMA21)"
+    elif current < ema9 < ema21: ema_desc = "Bear Aligned (Price<EMA9<EMA21)"
+    elif current > ema21: ema_desc = f"Above EMA21 ({ema21:.5f})"
+    else: ema_desc = f"Below EMA21 ({ema21:.5f})"
 
-    # Stoch RSI description
     if stoch_k < 0.2: stoch_desc = f"Oversold ({stoch_k:.2f})"
     elif stoch_k > 0.8: stoch_desc = f"Overbought ({stoch_k:.2f})"
     else: stoch_desc = f"Neutral ({stoch_k:.2f})"
 
-    # ADX description
     if adx_val > 40: adx_desc = f"Very Strong Trend ({adx_val:.1f})"
     elif adx_val > 25: adx_desc = f"Strong Trend ({adx_val:.1f})"
-    elif adx_val > 20: adx_desc = f"Developing Trend ({adx_val:.1f})"
     else: adx_desc = f"Weak/Ranging ({adx_val:.1f})"
 
     return {
-        "pair": pair_name,
-        "direction": direction,
-        "direction_short": direction_short,
-        "emoji": emoji,
-        "grade": grade,
-        "confidence": confidence,
-        "risk": risk,
-        "risk_emoji": risk_emoji,
-        "price": current,
-        "support": support,
-        "resistance": resistance,
-        "sentiment": sentiment,
-        "volatility": volatility,
-        "volume": volume_status,
-        "ma_summary": ma_summary,
-        "oscillator": oscillator,
-        "rsi_val": rsi_val,
-        "rsi_desc": rsi_desc,
-        "macd_desc": macd_desc,
-        "bb_desc": bb_desc,
-        "ema_desc": ema_desc,
-        "stoch_desc": stoch_desc,
-        "adx_desc": adx_desc,
-        "atr": atr,
-        "pattern": pattern,
-        "htf_trend": htf_trend,
+        "pair": pair_name, "direction": direction,
+        "direction_short": direction_short, "emoji": emoji,
+        "grade": grade, "confidence": confidence,
+        "risk": risk, "risk_emoji": risk_emoji,
+        "price": current, "support": support, "resistance": resistance,
+        "atr": atr, "sentiment": sentiment, "volatility": volatility,
+        "volume": volume_status, "htf_trend": htf_trend,
+        "ma_summary": ma_summary, "oscillator": oscillator,
+        "rsi_val": rsi_val, "rsi_desc": rsi_desc,
+        "macd_desc": macd_desc, "bb_desc": bb_desc,
+        "ema_desc": ema_desc, "stoch_desc": stoch_desc,
+        "adx_desc": adx_desc, "pattern": pattern,
         "time": datetime.now().strftime("%I:%M %p"),
     }
 
@@ -391,7 +292,7 @@ def format_signal(r):
         f"━━━━━━━━━━━━━━━━━━\n"
         f"📊 <b>PAIR:</b> {r['pair']}\n"
         f"🎯 <b>SIGNAL: {r['direction']}</b>\n"
-        f"⭐ <b>GRADE: {r['grade']}</b> | 💪 <b>CONFIDENCE: {r['confidence']}%</b>\n"
+        f"⭐ <b>GRADE: {r['grade']}</b> | 💪 <b>{r['confidence']}% Confidence</b>\n"
         f"⚠️ <b>RISK: {r['risk_emoji']} {r['risk']}</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"📈 <b>MARKET OVERVIEW</b>\n"
@@ -427,18 +328,14 @@ def format_signal(r):
     )
 
 def send_signals():
-    found = False
     for pair_name, symbol in PAIRS.items():
         try:
             result = analyze(pair_name, symbol)
             if result:
-                found = True
                 send_message(format_signal(result))
                 time.sleep(3)
         except:
             pass
-    if not found:
-        send_message("🔍 No grade A/B signals right now. Market is ranging. Checking again in 5 minutes...")
 
 def handle_commands():
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
@@ -475,7 +372,7 @@ def handle_commands():
             else:
                 requests.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                    json={"chat_id": chat_id, "text": f"🔍 No clear signal for {matched} right now. Indicators are mixed or market is ranging.", "parse_mode": "HTML"}
+                    json={"chat_id": chat_id, "text": f"🔍 No clear signal for {matched} right now. Market is ranging — wait for a stronger setup.", "parse_mode": "HTML"}
                 )
 
         elif text == "/pairs":
@@ -489,22 +386,23 @@ def handle_commands():
             requests.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                 json={"chat_id": chat_id, "text": (
-                    "🚀 <b>FRX Signal Box Pro!</b>\n\n"
+                    "🚀 <b>FRX Signal Box PRO</b>\n\n"
                     "📊 <b>Commands:</b>\n"
-                    "/analyze EURUSD - instant analysis\n"
-                    "/pairs - all monitored pairs\n\n"
+                    "/analyze EURUSD\n"
+                    "/analyze GBPUSD\n"
+                    "/analyze USDJPY\n"
+                    "/pairs - all pairs\n\n"
                     "⭐ <b>Grade System:</b>\n"
-                    "A = 75%+ confidence (strongest)\n"
-                    "B = 60-74% confidence (good)\n"
-                    "C = 50-59% confidence (weaker)\n\n"
+                    "A = 70%+ confidence\n"
+                    "B = 55-69% confidence\n"
+                    "C = below 55%\n\n"
                     "⚡ Auto signals every 5 minutes!"
                 ), "parse_mode": "HTML"}
             )
-
     except:
         pass
 
-send_message("🚀 <b>FRX Signal Box PRO is LIVE!</b>\n\n⭐ Now with Grade System (A/B/C)\n💪 Confidence % scoring\n📊 EMA + ADX + Stochastic RSI\n🕯 Candlestick pattern detection\n📈 Multi-timeframe analysis\n\nAuto signals every 5 minutes!")
+send_message("✅ <b>FRX Signal Box PRO - Updated!</b>\nSignal threshold lowered for more frequent alerts.\nAuto signals every 5 minutes!")
 
 counter = 0
 while True:
