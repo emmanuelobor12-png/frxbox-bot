@@ -283,7 +283,7 @@ def format_signal(r):
 
     return (
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"📡 <b>{r['pair']}</b>  |  {r['time']}  |  ⏱ 1 MIN\n"
+        f"📡 <code>{r['pair']}</code>  |  {r['time']}  |  ⏱ 1 MIN\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"{r['emoji']} <b>{r['direction']}</b>  |  💵 {r['price']:.5f}\n"
         f"\n"
