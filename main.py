@@ -28,6 +28,26 @@ def send_message(text):
     except:
         pass
 
+def get_updates(offset=None):
+    """Poll Telegram for new messages sent to the bot (used for on-demand /check commands)."""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+    params = {"timeout": 10}
+    if offset:
+        params["offset"] = offset
+    try:
+        r = requests.get(url, params=params, timeout=15)
+        return r.json().get("result", [])
+    except:
+        return []
+
+def normalize_pair_input(text):
+    """Turns things like 'eurusd', 'EUR/USD', 'eur usd' into a PAIRS key, or None if not found."""
+    cleaned = text.upper().replace("/", "").replace(" ", "").replace("-", "")
+    for name in PAIRS:
+        if name.upper().replace("/", "") == cleaned:
+            return name
+    return None
+
 def get_price_data(symbol, interval="1m", period="1d"):
     try:
         url  = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval={interval}&range={period}"
@@ -366,6 +386,53 @@ def format_signal(r):
         f"━━━━━━━━━━━━━━━━━━"
     )
 
+# ── ON-DEMAND COMMAND HANDLING ─────────────────────────────────────────────────
+def handle_command(text):
+    """Handles /check <pair> and /pairs commands from Telegram."""
+    text = text.strip()
+
+    if text.lower() in ("/pairs", "/list"):
+        pair_list = "\n".join(f"• <code>{p}</code>" for p in PAIRS)
+        send_message(f"📋 <b>Available Pairs</b>\n\n{pair_list}\n\nUse: <code>/check EURUSD</code>")
+        return
+
+    if text.lower().startswith("/check"):
+        arg = text[6:].strip()
+        if not arg:
+            send_message("Usage: <code>/check EURUSD</code> or <code>/check GBP/JPY</code>")
+            return
+        pair_name = normalize_pair_input(arg)
+        if not pair_name:
+            send_message(f"⚠️ Pair '{arg}' not recognized. Send /pairs to see the full list.")
+            return
+
+        send_message(f"🔍 Checking <code>{pair_name}</code>... this takes a few seconds.")
+        symbol = PAIRS[pair_name]
+        res = analyze(pair_name, symbol)
+        if res:
+            send_message(format_signal(res))
+        else:
+            send_message(
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"📡 <code>{pair_name}</code> — No Clean Signal\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"This pair didn't pass our filters right now\n"
+                f"(low confidence, consolidating, or HTF mismatch).\n"
+                f"Try again in a few minutes.\n"
+                f"━━━━━━━━━━━━━━━━━━"
+            )
+
+def poll_commands(offset):
+    """Checks for new Telegram messages and handles any /check commands. Returns updated offset."""
+    updates = get_updates(offset)
+    for update in updates:
+        offset = update["update_id"] + 1
+        msg = update.get("message", {})
+        text = msg.get("text", "")
+        if text:
+            handle_command(text)
+    return offset
+
 # ── MAIN LOOP ─────────────────────────────────────────────────────────────────
 def main_loop():
     send_message(
@@ -381,16 +448,31 @@ def main_loop():
         "✅ High risk signals blocked\n"
         "✅ Narrow market signals blocked\n\n"
         "🟢 LOW RISK = best trades\n"
-        "🟡 MEDIUM RISK = trade carefully\n"
+        "🟡 MEDIUM RISK = trade carefully\n\n"
+        "📲 <b>On-demand:</b> send <code>/check EURUSD</code>\n"
+        "anytime to scan a specific pair instantly.\n"
+        "Send <code>/pairs</code> to see the full list.\n"
         "━━━━━━━━━━━━━━━━━━"
     )
+
+    offset = None
+    last_scan = 0
+    SCAN_INTERVAL = 45
+
     while True:
-        for pair_name, symbol in PAIRS.items():
-            res = analyze(pair_name, symbol)
-            if res:
-                send_message(format_signal(res))
-                time.sleep(3)
-        time.sleep(45)
+        # Always check for on-demand commands first — fast, ~10s max wait
+        offset = poll_commands(offset)
+
+        # Run the full background scan only every SCAN_INTERVAL seconds
+        if time.time() - last_scan >= SCAN_INTERVAL:
+            for pair_name, symbol in PAIRS.items():
+                res = analyze(pair_name, symbol)
+                if res:
+                    send_message(format_signal(res))
+                    time.sleep(3)
+                # Check for commands between each pair too, so /check feels instant
+                offset = poll_commands(offset)
+            last_scan = time.time()
 
 if __name__ == "__main__":
     main_loop()
