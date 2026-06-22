@@ -277,6 +277,12 @@ def analyze(pair_name, symbol):
     if htf_trend == "DOWNWARD ↓":
         bear_points += 3 if htf_strong else 1
 
+    # ── MINIMUM SCORE GAP — signals must be clearly one-sided ──
+    # If bull and bear are within 2 points of each other, the market
+    # is not giving a clear enough signal — skip it
+    if abs(bull_points - bear_points) < 3:
+        return None
+
     # ── DIRECTION ──
     if bull_points > bear_points:
         direction = "HIGHER"
@@ -446,7 +452,9 @@ def main_loop():
         "✅ No consolidation signals\n"
         "✅ No RSI contradictions\n"
         "✅ High risk signals blocked\n"
-        "✅ Narrow market signals blocked\n\n"
+        "✅ Narrow market signals blocked\n"
+        "✅ Clear score gap required\n"
+        "✅ 5-min cooldown per pair\n\n"
         "🟢 LOW RISK = best trades\n"
         "🟡 MEDIUM RISK = trade carefully\n\n"
         "📲 <b>On-demand:</b> send <code>/check EURUSD</code>\n"
@@ -458,19 +466,28 @@ def main_loop():
     offset = None
     last_scan = 0
     SCAN_INTERVAL = 45
+    pair_cooldowns = {}   # tracks last signal time per pair
+    PAIR_COOLDOWN  = 300  # 5 minutes in seconds
 
     while True:
-        # Always check for on-demand commands first — fast, ~10s max wait
         offset = poll_commands(offset)
 
-        # Run the full background scan only every SCAN_INTERVAL seconds
         if time.time() - last_scan >= SCAN_INTERVAL:
+            now = time.time()
             for pair_name, symbol in PAIRS.items():
+
+                # Skip pair if it fired a signal less than 5 minutes ago
+                last_fired = pair_cooldowns.get(pair_name, 0)
+                if now - last_fired < PAIR_COOLDOWN:
+                    offset = poll_commands(offset)
+                    continue
+
                 res = analyze(pair_name, symbol)
                 if res:
                     send_message(format_signal(res))
+                    pair_cooldowns[pair_name] = now  # start cooldown
                     time.sleep(3)
-                # Check for commands between each pair too, so /check feels instant
+
                 offset = poll_commands(offset)
             last_scan = time.time()
 
